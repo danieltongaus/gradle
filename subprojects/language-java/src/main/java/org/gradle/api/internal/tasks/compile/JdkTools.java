@@ -17,6 +17,7 @@
 package org.gradle.api.internal.tasks.compile;
 
 import org.gradle.api.JavaVersion;
+import org.gradle.internal.UncheckedException;
 import org.gradle.internal.classloader.ClassLoaderFactory;
 import org.gradle.internal.classloader.DefaultClassLoaderFactory;
 import org.gradle.internal.classloader.FilteringClassLoader;
@@ -27,10 +28,26 @@ import org.gradle.internal.jvm.JavaInfo;
 import org.gradle.internal.jvm.Jvm;
 import org.gradle.internal.reflect.DirectInstantiator;
 
+import javax.lang.model.SourceVersion;
+import javax.tools.DiagnosticListener;
 import javax.tools.JavaCompiler;
+import javax.tools.JavaFileManager;
+import javax.tools.JavaFileObject;
+import javax.tools.StandardJavaFileManager;
 import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Writer;
 import java.lang.reflect.InvocationTargetException;
-import java.util.concurrent.atomic.AtomicReference;
+import java.nio.charset.Charset;
+import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static java.lang.ClassLoader.getSystemClassLoader;
 
@@ -41,21 +58,11 @@ public class JdkTools {
 
     // Copied from ToolProvider.defaultJavaCompilerName
     private static final String DEFAULT_COMPILER_IMPL_NAME = "com.sun.tools.javac.api.JavacTool";
-    private static final AtomicReference<JdkTools> INSTANCE = new AtomicReference<JdkTools>();
 
     private final ClassLoader isolatedToolsLoader;
     private final boolean isJava9Compatible;
 
-    public static JdkTools current() {
-        JdkTools jdkTools = INSTANCE.get();
-        if (jdkTools == null) {
-            INSTANCE.compareAndSet(null, new JdkTools(Jvm.current()));
-            jdkTools = INSTANCE.get();
-        }
-        return jdkTools;
-    }
-
-    JdkTools(JavaInfo javaInfo) {
+    JdkTools(JavaInfo javaInfo, List<File> compilerPlugins) {
         DefaultClassLoaderFactory defaultClassLoaderFactory = new DefaultClassLoaderFactory();
         JavaVersion javaVersion = Jvm.current().getJavaVersion();
         boolean java9Compatible = javaVersion.isJava9Compatible();
@@ -67,11 +74,11 @@ public class JdkTools {
                     + javaInfo.getJavaHome().getAbsolutePath()
                     + " contains a valid JDK installation.");
             }
-            ClassPath defaultClassPath = DefaultClassPath.of(toolsJar);
+            ClassPath defaultClassPath = DefaultClassPath.of(toolsJar).plus(compilerPlugins);
             isolatedToolsLoader = new VisitableURLClassLoader("jdk-tools", filteringClassLoader, defaultClassPath.getAsURLs());
             isJava9Compatible = false;
         } else {
-            isolatedToolsLoader = filteringClassLoader;
+            isolatedToolsLoader = new VisitableURLClassLoader("jdk-tools", filteringClassLoader, DefaultClassPath.of(compilerPlugins));
             isJava9Compatible = true;
         }
     }
@@ -83,6 +90,10 @@ public class JdkTools {
     }
 
     public JavaCompiler getSystemJavaCompiler() {
+        return new DefaultIncrementalAwareCompiler(buildJavaCompiler());
+    }
+
+    private JavaCompiler buildJavaCompiler() {
         Class<?> clazz;
         try {
             if (isJava9Compatible) {
@@ -103,5 +114,55 @@ public class JdkTools {
 
     private void cannotCreateJavaCompiler(Exception e) {
         throw new IllegalStateException("Could not create system Java compiler", e);
+    }
+
+    private class DefaultIncrementalAwareCompiler implements IncrementalCompilationAwareJavaCompiler {
+        private final JavaCompiler delegate;
+
+        private DefaultIncrementalAwareCompiler(JavaCompiler delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public CompilationTask getTask(Writer out, JavaFileManager fileManager, DiagnosticListener<? super JavaFileObject> diagnosticListener, Iterable<String> options, Iterable<String> classes, Iterable<? extends JavaFileObject> compilationUnits) {
+            return delegate.getTask(out, fileManager, diagnosticListener, options, classes, compilationUnits);
+        }
+
+        @Override
+        public StandardJavaFileManager getStandardFileManager(DiagnosticListener<? super JavaFileObject> diagnosticListener, Locale locale, Charset charset) {
+            return delegate.getStandardFileManager(diagnosticListener, locale, charset);
+        }
+
+        @Override
+        public String name() {
+            return delegate.name();
+        }
+
+        @Override
+        public int run(InputStream in, OutputStream out, OutputStream err, String... arguments) {
+            return delegate.run(in, out, err, arguments);
+        }
+
+        @Override
+        public Set<SourceVersion> getSourceVersions() {
+            return delegate.getSourceVersions();
+        }
+
+        @Override
+        public int isSupportedOption(String option) {
+            return delegate.isSupportedOption(option);
+        }
+
+        @Override
+        public JavaCompiler.CompilationTask makeIncremental(JavaCompiler.CompilationTask task, File mappingFile, CompilationSourceDirs compilationSourceDirs) {
+            try {
+                Class<?> clazz = isolatedToolsLoader.loadClass("org.gradle.internal.compiler.java.IncrementalCompileTask");
+                return DirectInstantiator.instantiate(clazz.asSubclass(JavaCompiler.CompilationTask.class), task,
+                    (Function<File, Optional<String>>) file -> compilationSourceDirs.relativize(file),
+                    (Consumer<Map<String, Collection<String>>>) mapping -> SourceClassesMappingFileAccessor.writeSourceClassesMappingFile(mappingFile, mapping));
+            } catch (ClassNotFoundException e) {
+                throw UncheckedException.throwAsUncheckedException(e);
+            }
+        }
     }
 }
