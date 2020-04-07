@@ -2088,4 +2088,62 @@ dependencies {
         succeeds 'dependencies', '--configuration', 'conf'
     }
 
+    def 'does not cache node dependencies when node is deselected then reselected with different exclude filter'() {
+        given:
+        // Excluded module
+        def excluded = mavenRepo.module('org.test', 'excluded', '1.0').publish()
+
+        // Intermediates
+        def intermediate10 = mavenRepo.module('org.test', 'intermediate1', '1.0').dependsOn(excluded).publish()
+        def intermediate20 = mavenRepo.module('org.test', 'intermediate1', '2.0').dependsOn(excluded).publish()
+        def intermediate2 = mavenRepo.module('org.test', 'intermediate2', '1.0').dependsOn(intermediate10).publish()
+        def intermediate3 = mavenRepo.module('org.test', 'intermediate3', '1.0').dependsOn(intermediate2).publish()
+
+        // Aligned modules
+        def firstAligned = mavenRepo.module('org.aligned', 'aligned1', '1.0').dependsOn(intermediate20).publish()
+        mavenRepo.module('org.aligned', 'aligned1', '2.0').dependsOn(intermediate20).publish()
+        def otherAligned = mavenRepo.module('org.aligned', 'aligned2', '2.0').publish()
+
+        // Roots
+        mavenRepo.module('org.test', 'excludingRoot', '1.0').dependsOn(firstAligned, exclusions: [[group: 'org.test', module: 'excluded']]).publish()
+        mavenRepo.module('org.test', 'root2', '1.0').dependsOn(intermediate3).publish()
+        mavenRepo.module('org.test', 'root3', '1.0').dependsOn(otherAligned).publish()
+
+        buildFile << """
+            repositories {
+                maven {
+                    name 'repo'
+                    url '${mavenRepo.uri}'
+                }
+            }
+
+            configurations {
+                conf
+            }
+
+            dependencies {
+                conf 'org.test:excludingRoot:1.0'
+                conf 'org.test:root2:1.0'
+                conf 'org.test:root3:1.0'
+
+                components.all(AlignGroup.class)
+            }
+
+            class AlignGroup implements ComponentMetadataRule {
+                void execute(ComponentMetadataContext ctx) {
+                    ctx.details.with { it ->
+                        if (it.getId().getGroup().startsWith("org.aligned")) {
+                            it.belongsTo("org.aligned:platform:\${it.getId().getVersion()}")
+                        }
+                    }
+                }
+            }
+"""
+        when:
+        succeeds 'dependencies', '--configuration', 'conf'
+
+        then:
+        outputContains('excluded')
+    }
+
 }
