@@ -35,6 +35,7 @@ import org.gradle.api.artifacts.dsl.DependencyLockingHandler
 import org.gradle.api.artifacts.dsl.RepositoryHandler
 import org.gradle.api.artifacts.query.ArtifactResolutionQuery
 import org.gradle.api.artifacts.repositories.ArtifactRepository
+import org.gradle.api.artifacts.result.ComponentResult
 import org.gradle.api.artifacts.type.ArtifactTypeContainer
 import org.gradle.api.attributes.AttributeMatchingStrategy
 import org.gradle.api.attributes.AttributesSchema
@@ -107,4 +108,5 @@ fun BindingsBuilder.unsupportedTypes() {
     bind(unsupported<DependencyLockingHandler>())
     bind(unsupported<ResolvedDependency>())
     bind(unsupported<ResolvedArtifact>())
+    bind(unsupported<ComponentResult>())
 }
