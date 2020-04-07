@@ -25,6 +25,7 @@ import org.gradle.api.artifacts.DependencyConstraintSet
 import org.gradle.api.artifacts.DependencySet
 import org.gradle.api.artifacts.LenientConfiguration
 import org.gradle.api.artifacts.ResolutionStrategy
+import org.gradle.api.artifacts.ResolvedArtifact
 import org.gradle.api.artifacts.ResolvedConfiguration
 import org.gradle.api.artifacts.ResolvedDependency
 import org.gradle.api.artifacts.dsl.ComponentMetadataHandler
@@ -43,6 +44,7 @@ import org.gradle.api.attributes.DisambiguationRuleChain
 import org.gradle.api.initialization.Settings
 import org.gradle.api.internal.artifacts.DefaultDependencyConstraintSet
 import org.gradle.api.internal.artifacts.DefaultDependencySet
+import org.gradle.api.internal.artifacts.DefaultResolvedArtifact
 import org.gradle.api.internal.artifacts.DefaultResolvedDependency
 import org.gradle.api.internal.artifacts.configurations.DefaultConfigurationContainer
 import org.gradle.api.internal.artifacts.dependencies.DefaultExternalModuleDependency
@@ -176,5 +178,6 @@ class InstantExecutionUnsupportedTypesIntegrationTest extends AbstractInstantExe
         DefaultExternalModuleDependency       | Dependency                     | "project.dependencies.create('junit:junit:4.12')"
         DefaultDependencyLockingHandler       | DependencyLockingHandler       | "project.dependencyLocking"
         DefaultResolvedDependency             | ResolvedDependency             | "project.configurations.create(java.util.UUID.randomUUID().toString()).tap { project.dependencies.add(name, 'junit:junit:4.12') }.resolvedConfiguration.firstLevelModuleDependencies.first()"
+        DefaultResolvedArtifact               | ResolvedArtifact               | "project.configurations.create(java.util.UUID.randomUUID().toString()).tap { project.dependencies.add(name, 'junit:junit:4.12') }.resolvedConfiguration.resolvedArtifacts.first()"
     }
 }
